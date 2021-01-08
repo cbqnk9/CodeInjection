@@ -1,154 +1,67 @@
 #include <stdio.h>
 #include <Windows.h>
 
-typedef UINT(WINAPI* WINEXEC)(LPCSTR, UINT);  //«‘ºˆ ∆˜¿Œ≈Õ
+typedef UINT(WINAPI* WINEXEC)(LPCSTR, UINT);  //Ìï®Ïàò Ìè¨Ïù∏ÌÑ∞
 
 
-//Thread Parameter
-typedef struct _THREAD_PARAM
-{
-	FARPROC pFunc[2]; //LoadLibraryA(), GetProcAddress()
-	char szBuf[4][128]; //"user32.dll", "MessageBoxA",
-						// "www.reversecore.com", "ReverseCore"
-} THREAD_PARAM, * PTHREAD_PARAM;
+typedef struct {
+	char buf[15];
+	WINEXEC pFunc;
+}INJECT_DATA;
 
-// LoadLibraryA()
-typedef HMODULE(WINAPI* PFLOADLIBRARYA)
-(
-	LPCSTR lpLibFileName
-	);
-
-//GetProcAddress()
-typedef FARPROC(WINAPI* PFGETPROCADDRESS)
-(
-	HMODULE hModule,
-	LPCSTR lpProcName
-	);
-
-//MessageBoxA()
-typedef int (WINAPI* PFMESSAGEBOXA)
-(
-	HWND hWnd,
-	LPCSTR lpText,
-	LPCSTR lpCaption,
-	UINT uType
-	);
-
-
-//Thread Procedure
-//ThreadProc()«‘ºˆ¥¬ THREAD_PARAM ±∏¡∂√º∏¶ ¿ÃøÎ«ÿº≠ 2∞≥¿« API ¡÷º“øÕ 4∞≥¿« πÆ¿⁄ø≠ µ•¿Ã≈Õ∏¶ πﬁæ∆µÈ¿Œ¥Ÿ.
-// * 2∞≥¿« API ¡÷º“ : LoadLibraryA(), GetProcAddress()
-// dl 2∞≥¿« API¡÷º“∏∏ ¿÷¿∏∏È ∏µÁ ∂Û¿Ã∫Í∑Ø∏Æ¿« «‘ºˆ∏¶ »£√‚«“ ºˆ ¿÷¥Ÿ.
-DWORD WINAPI ThreadProc(LPVOID lParam)
-{
-	PTHREAD_PARAM pParam = (PTHREAD_PARAM)lParam;
-	HMODULE hMod = NULL;
-	FARPROC pFunc = NULL;
-
-	//LoadLibrary("user32.dll")
-	//pParam->pFunc[0] -> kernel32!LoadLibraryA()
-	//pParam->szBuf[0] -> "user32.dll"
-	hMod = ((PFLOADLIBRARYA)pParam->pFunc[0])(pParam->szBuf[0]);
-
-	// GetProcAddress("MessageBoxA")
-	// pParam->pFunc[1] -> kernel32!GetProcAddress()
-	// pParam->szBuf[1] -> "MessageBoxA"
-	pFunc = (FARPROC)((PFGETPROCADDRESS)pParam->pFunc[1])(hMod, pParam->szBuf[1]);
-
-	//MessageBoxA(NULL, "www.reversecore.com", "ReverseCore", MB_OK)
-	//pParam->szBuf[2]->"www.reversecore.com"
-	//pParam->szBuf[3]->"ReverseCore"
-	((PFMESSAGEBOXA)pFunc)(NULL, pParam->szBuf[2], pParam->szBuf[3], MB_OK);
-
-	return 0;
+void WINAPI ThreadProc(INJECT_DATA* threadinject) {
+	WINEXEC pFunc = threadinject->pFunc;
+	((WINEXEC)pFunc)(threadinject->buf, SW_SHOWDEFAULT);
 }
-
-//Code ¿Œ¡ßº« ±‚π˝¿« «ŸΩ…¿∫ µ∂∏≥ Ω««‡ ƒ⁄µÂ∏¶ ¿Œ¡ßº««œ¥¬ ∞Õ¿Ã¥Ÿ. ±◊∑Ø±‚ ¿ß«ÿº≠¥¬ ƒ⁄µÂøÕ µ•¿Ã≈Õ∏¶ ∞∞¿Ã 
-//¿Œ¡ßº««ÿæﬂ «œ¥¬µ• ¿Ã∂ß ¿Œ¡ßº««œ¥¬ ƒ⁄µÂø°º≠ ¿Œ¡ßº««— µ•¿Ã≈Õ∏¶ ¡§»Æ»˜ ¬¸¡∂«“ ºˆ ¿÷æÓæﬂ «—¥Ÿ.
-// ¿ß¿« ƒ⁄µÂµÈ¿ª ∫∏∏È ¿¸∫Œ Ω∫∑πµÂ ∆ƒ∂ÛπÃ≈Õ∑Œ ≥—æÓø¬ THREAD_PARAM±∏¡∂√ºø°º≠ ∞°¡Æ¥Ÿ ªÁøÎ«œ∞Ì ¿÷¥Ÿ.
 
 void AfterFunc() {};
 
-BOOL InjectCode(DWORD dwPID)
-{
-	//THREAD_PARAM ±∏¡∂√º ∫Øºˆ ºº∆√
-	//¿Ã ∞™µÈ¿∫ ªÛ¥ÎπÊ «¡∑ŒººΩ∫ø° ¿Œ¡ßº«µ«æÓ ThreadProc()Ω∫∑πµÂ «‘ºˆø° ∆ƒ∂ÛπÃ≈Õ∑Œ ¿¸¥ﬁµ… ∞Õ¿Ã¥Ÿ.
-	HMODULE hMod = NULL;
-	THREAD_PARAM param = { 0, };
+void codeinjection(DWORD PID) {
+	HMODULE hMod;
 	HANDLE hProcess = NULL;
 	HANDLE hThread = NULL;
-	LPVOID pRemoteBuf[2] = { 0, };
-	DWORD dwSize = 0;
+	PVOID ThreadProc_Address = NULL;
+	PVOID Inject_Data_Address = NULL;
+	INJECT_DATA InjectData;
+
+	//ThreadProc Size
+	DWORD ThreadProc_Size = (DWORD)AfterFunc - (DWORD)ThreadProc;
 
 	hMod = GetModuleHandleA("kernel32.dll");
 
-	// set THREAD_PARAM
-	param.pFunc[0] = GetProcAddress(hMod, "LoadLibraryA");
-	param.pFunc[1] = GetProcAddress(hMod, "GetProcAddress");
-	printf("%x", param.pFunc);
-	strcpy(param.szBuf[0], "user32.dll");
-	strcpy(param.szBuf[1], "MessageBoxA");
-	strcpy(param.szBuf[2], "www.reversecore.com");
-	strcpy(param.szBuf[3], "ReverseCore");
+	//Target Proccess Handle
+	hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, PID);
 
-	//æ∆∑° ƒ⁄µÂ¿« «ŸΩ…¿∫ ªÛ¥ÎπÊ «¡∑ŒººΩ∫ø° dataøÕ code∏¶ ∞¢∞¢ ∏ﬁ∏∏Æ «“¥Á«œ∞Ì ¿Œ¡ßº««ÿ¡ÿ¥Ÿ¥¬ ∞Õ¿Ã¥Ÿ.
+	//Target ProcessÏóê ThreadProc_Size ÎßåÌÅº Memory Allocate, Address Î∞òÌôò
+	ThreadProc_Address = VirtualAllocEx(hProcess, NULL, ThreadProc_Size, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
 
-	// Open Process
-	hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, dwPID);
+	WriteProcessMemory(hProcess, ThreadProc_Address, (LPVOID)ThreadProc, ThreadProc_Size, NULL);
+	
+	//messagebox
+	sprintf(InjectData.buf, "messagebox.exe\0");
 
-	// Allocation for THREAD_PARAM
-	dwSize = sizeof(THREAD_PARAM);
-	pRemoteBuf[0] = VirtualAllocEx(hProcess, NULL, dwSize, MEM_COMMIT, PAGE_READWRITE);
+	//kernel32.dll Î™®ÎìàÏùò WinExec Ìï®ÏàòÏùò Ï£ºÏÜåÎ•º INJECT_DATA Íµ¨Ï°∞Ï≤¥Ïùò Ìï®ÏàòÌè¨Ïù∏ÌÑ∞Î°ú ÏûÖÎ†•
+	InjectData.pFunc = (WINEXEC)GetProcAddress(GetModuleHandleA("kernel32.dll"), "WinExec");
 
+	//print("%x", InjectData.pFunc)
+	
+	Inject_Data_Address = VirtualAllocEx(hProcess, NULL, sizeof(InjectData), MEM_COMMIT, PAGE_EXECUTE_READWRITE);
 
-	WriteProcessMemory(hProcess, // hProcess
-		pRemoteBuf[0], //lpBaseAddress
-		(LPVOID)&param, //lpBuffer
-		dwSize, //nSize
-		NULL); //[out]
-				// lpNumberOfBytesWritten
+	WriteProcessMemory(hProcess, Inject_Data_Address, (LPVOID)&InjectData, sizeof(InjectData), NULL);
 
-	//Allocation for ThreadProc()
-	dwSize = (DWORD)InjectCode - (DWORD)ThreadProc;
-	pRemoteBuf[1] = VirtualAllocEx(hProcess, //hProcess
-		NULL, // lpAddress
-		dwSize, // dwSize
-		MEM_COMMIT, //flAllocationType
-		PAGE_EXECUTE_READWRITE); // flProtect
+	hThread = CreateRemoteThread(hProcess, NULL, 0, (LPTHREAD_START_ROUTINE)ThreadProc_Address, Inject_Data_Address, CREATE_SUSPENDED, NULL);
 
-	WriteProcessMemory(hProcess, //hProcess
-		pRemoteBuf[1], //lpBaseAddress
-		(LPVOID)ThreadProc, //lpBuffer
-		dwSize, //nSize
-		NULL); //[out]
-			   //lpNumberOfBytesWritten
-
-	//CreateRemoteThread() API∏¶ ¿ÃøÎ«ÿº≠ ø¯∞› Ω∫∑πµÂ∏¶ Ω««‡Ω√≈≤¥Ÿ.
-	hThread = CreateRemoteThread(hProcess, //hProcess
-		NULL,  //lpThreadAttributes
-		0,     //dwStackSize
-		(LPTHREAD_START_ROUTINE)pRemoteBuf[1],
-		pRemoteBuf[0],  // lpParameter
-		0, //dwCreationFlags
-		NULL); //lpThreadId
-
+	ResumeThread(hThread);
 	WaitForSingleObject(hThread, INFINITE);
-
-	CloseHandle(hThread);
-	CloseHandle(hProcess);
-
-	return TRUE;
 }
 
-int main(int argc, char* argv[])
-{
-	DWORD dwPID = 0;
+int main() {
 	int getPID = 0;
 
 	printf("PID :");
 	scanf("%d", &getPID);
-	dwPID = (DWORD)getPID;
-	InjectCode(dwPID); // InjectCode«‘ºˆ »£√‚
+
+	codeinjection((DWORD)getPID);
 
 	return 0;
 }
