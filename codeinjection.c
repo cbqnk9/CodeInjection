@@ -43,7 +43,7 @@ void codeinjection(DWORD PID) {
 	//kernel32.dll 모듈의 WinExec 함수의 주소를 INJECT_DATA 구조체의 함수포인터로 입력
 	InjectData.pFunc = (WINEXEC)GetProcAddress(GetModuleHandleA("kernel32.dll"), "WinExec");
 
-	//print("%x", InjectData.pFunc)
+	//print("%x", InjectData.pFunc);
 	
 	Inject_Data_Address = VirtualAllocEx(hProcess, NULL, sizeof(InjectData), MEM_COMMIT, PAGE_EXECUTE_READWRITE);
 
